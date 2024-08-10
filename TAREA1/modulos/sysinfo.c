@@ -10,9 +10,9 @@
 
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Tu Nombre");
+MODULE_AUTHOR("Justin Aguirre");
 MODULE_DESCRIPTION("Modulo para leer informacion de memoria y CPU");
-MODULE_VERSION("1.0");
+
 
 #define PROC_NAME "sysinfo" // nombre del archivo en /proc
 
