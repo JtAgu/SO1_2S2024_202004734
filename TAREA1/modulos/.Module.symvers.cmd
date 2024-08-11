@@ -1,0 +1,1 @@
+savedcmd_/home/justin/Desktop/SO1/SO1_2S2024_202004734/TAREA1/modulos/Module.symvers :=  scripts/mod/modpost -m -a      -o /home/justin/Desktop/SO1/SO1_2S2024_202004734/TAREA1/modulos/Module.symvers -T /home/justin/Desktop/SO1/SO1_2S2024_202004734/TAREA1/modulos/modules.order -i Module.symvers -e 

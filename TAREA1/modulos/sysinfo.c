@@ -7,7 +7,7 @@
 #include <linux/sched.h> // trae las funciones para manejar los procesos
 #include <linux/timer.h> // trae las funciones para manejar los timers
 #include <linux/jiffies.h> // trae las funciones para manejar los jiffies, que son los ticks del sistema
-
+#include <linux/sched/signal.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Justin Aguirre");
@@ -22,9 +22,9 @@ MODULE_DESCRIPTION("Modulo para leer informacion de memoria y CPU");
 */
 static int sysinfo_show(struct seq_file *m, void *v) {
     struct sysinfo si; // estructura que contiene la informacion de la memoria
-
+    struct task_struct *task;
     si_meminfo(&si); // obtiene la informacion de la memoria
-
+    
     /*  
         El seq_printf se encarga de escribir en el archivo en /proc
         - m: es el archivo en /pro
@@ -38,6 +38,13 @@ static int sysinfo_show(struct seq_file *m, void *v) {
     seq_printf(m, "Free Swap: %lu KB\n", si.freeswap * 4);
 
     seq_printf(m, "Number of processes: %d\n", num_online_cpus());
+
+    for_each_process(task){
+        if(task->parent){
+            printk(KERN_INFO "Parent Process: %s [PID: %d]\n",task->parent->comm, task->parent->pid);
+            printk(KERN_INFO "Child Process: %s [PID: %d]\n",task->comm, task->pid);
+        }
+    }
 
     return 0;
 };
