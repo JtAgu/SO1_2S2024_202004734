@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Lista de imágenes de alto y bajo consumo
-ALTO_CONSUMO=("redis" "stress")
+ALTO_CONSUMO=("redis" "progrium/stress")
 BAJO_CONSUMO=("alpine")  # Solo una imagen de bajo consumo
 
 # Función para crear contenedores
@@ -37,7 +37,7 @@ do
     crear_contenedores 10
 
     # Pausa de 10 segundos
-    echo "Esperando 10 segundos..."
+    echo "Esperando 20 segundos..."
     sleep 20
 
     # Eliminar los contenedores creados
