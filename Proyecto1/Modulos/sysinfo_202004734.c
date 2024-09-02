@@ -23,7 +23,7 @@ MODULE_DESCRIPTION("Modulo para leer informacion de memoria y CPU en JSON");
 MODULE_VERSION("1.0");
 
 // Definición del nombre del archivo en /proc
-#define PROC_NAME "sysinfo_20200734"
+#define PROC_NAME "sysinfo_202004734"
 #define MAX_CMDLINE_LENGTH 256
 #define CONTAINER_ID_LENGTH 64
 
