@@ -2,7 +2,7 @@
 
 # Lista de imágenes de alto y bajo consumo
 ALTO_CONSUMO=("redis" "progrium/stress")
-BAJO_CONSUMO=("alpine")  # Solo una imagen de bajo consumo
+BAJO_CONSUMO=("alpine" "busybox")
 
 # Función para crear contenedores
 crear_contenedores() {
@@ -20,7 +20,7 @@ crear_contenedores() {
             IMAGE=${ALTO_CONSUMO[$((RANDOM % ${#ALTO_CONSUMO[@]}))]}
         else
             # Seleccionar la única imagen de bajo consumo
-            IMAGE=${BAJO_CONSUMO[0]}
+            IMAGE=${BAJO_CONSUMO[$((RANDOM % ${#BAJO_CONSUMO[@]}))]}
         fi
 
         # Crear el contenedor con la imagen seleccionada

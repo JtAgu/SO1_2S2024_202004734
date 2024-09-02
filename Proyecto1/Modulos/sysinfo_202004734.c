@@ -1,102 +1,215 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/string.h> 
 #include <linux/init.h>
-#include <linux/proc_fs.h>
-#include <linux/seq_file.h>
-#include <linux/mm.h>
-#include <linux/sched.h>
-#include <linux/sched/signal.h>
-#include <linux/jiffies.h>
+#include <linux/proc_fs.h> 
+#include <linux/seq_file.h> 
+#include <linux/mm.h> 
+#include <linux/sched.h> 
+#include <linux/timer.h> 
+#include <linux/jiffies.h> 
 #include <linux/uaccess.h>
-#include <linux/fs.h>
-#include <linux/ctype.h>
-#include <linux/slab.h>
+#include <linux/tty.h>
+#include <linux/sched/signal.h>
+#include <linux/fs.h>        
+#include <linux/slab.h>      
+#include <linux/sched/mm.h>
+#include <linux/binfmts.h>
+#include <linux/timekeeping.h>
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Justin Aguirre");
-MODULE_DESCRIPTION("Modulo para leer informacion de memoria y CPU");
+MODULE_AUTHOR("Tu Nombre");
+MODULE_DESCRIPTION("Modulo para leer informacion de memoria y CPU en JSON");
+MODULE_VERSION("1.0");
 
 // Definición del nombre del archivo en /proc
 #define PROC_NAME "sysinfo_20200734"
+#define MAX_CMDLINE_LENGTH 256
+#define CONTAINER_ID_LENGTH 64
 
-// Función para calcular el porcentaje de uso de memoria
-static unsigned long calculate_memory_usage(unsigned long total, unsigned long free) {
-    return total - free;
+// Función para obtener la línea de comandos de un proceso y retornar un apuntador a la cadena
+static char *get_process_cmdline(struct task_struct *task) {
+
+    /* 
+        Creamos una estructura mm_struct para obtener la información de memoria
+        Creamos un apuntador char para la línea de comandos
+        Creamos un apuntador char para recorrer la línea de comandos
+        Creamos variables para guardar las direcciones de inicio y fin de los argumentos y el entorno
+        Creamos variables para recorrer la línea de comandos
+    */
+    struct mm_struct *mm;
+    char *cmdline, *p;
+    unsigned long arg_start, arg_end, env_start;
+    int i, len;
+
+
+    // Reservamos memoria para la línea de comandos
+    cmdline = kmalloc(MAX_CMDLINE_LENGTH, GFP_KERNEL);
+    if (!cmdline)
+        return NULL;
+
+    // Obtenemos la información de memoria
+    mm = get_task_mm(task);
+    if (!mm) {
+        kfree(cmdline);
+        return NULL;
+    }
+
+    /* 
+       1. Primero obtenemos el bloqueo de lectura de la estructura mm_struct para una lectura segura
+       2. Obtenemos las direcciones de inicio y fin de los argumentos y el entorno
+       3. Liberamos el bloqueo de lectura de la estructura mm_struct
+    */
+    down_read(&mm->mmap_lock);
+    arg_start = mm->arg_start;
+    arg_end = mm->arg_end;
+    env_start = mm->env_start;
+    up_read(&mm->mmap_lock);
+
+    // Obtenemos la longitud de la línea de comandos y validamos que no sea mayor a MAX_CMDLINE_LENGTH - 1
+    len = arg_end - arg_start;
+
+    if (len > MAX_CMDLINE_LENGTH - 1)
+        len = MAX_CMDLINE_LENGTH - 1;
+
+    // Obtenemos la línea de comandos de  la memoria virtual del proceso
+    /* 
+        Por qué de la memoria virtual del proceso?
+        La memoria virtual es la memoria que un proceso puede direccionar, es decir, la memoria que un proceso puede acceder
+    */
+    if (access_process_vm(task, arg_start, cmdline, len, 0) != len) {
+        mmput(mm);
+        kfree(cmdline);
+        return NULL;
+    }
+
+    // Agregamos un caracter nulo al final de la línea de comandos
+    cmdline[len] = '\0';
+
+    // Reemplazar caracteres nulos por espacios
+    p = cmdline;
+    for (i = 0; i < len; i++)
+        if (p[i] == '\0')
+            p[i] = ' ';
+
+    // Liberamos la estructura mm_struct
+    mmput(mm);
+    return cmdline;
 }
 
-// Función para mostrar la información en el archivo /proc
+
+/* 
+    Función para mostrar la información en el archivo /proc en formato JSON
+*/
 static int sysinfo_show(struct seq_file *m, void *v) {
+    /* 
+        Creamos una estructura sysinfo para obtener la información de memoria
+        creamos una estructura task_struct para recorrer los procesos
+        total_jiffies para obtener el tiempo total de CPU
+        first_process para saber si es el primer proceso
+    */
     struct sysinfo si;
     struct task_struct *task;
-    unsigned long totalram, freeram, usedram;
-    unsigned long pagesize = 4096; // Tamaño de una página en bytes (puede variar según la arquitectura)
+    unsigned long total_jiffies = jiffies;
+    int first_process = 1;
 
+    // Obtenemos la información de memoria
     si_meminfo(&si);
 
-    totalram = si.totalram * (pagesize / 1024);
-    freeram = si.freeram * (pagesize / 1024);
-    usedram = calculate_memory_usage(totalram, freeram);
 
-    seq_printf(m, "Total RAM: %lu KB\n", totalram);
-    seq_printf(m, "Free RAM: %lu KB\n", freeram);
-    seq_printf(m, "Used RAM: %lu KB\n", usedram);
+    seq_printf(m, "{\n");
+    seq_printf(m, "\"Processes\": [\n");
 
-    seq_printf(m, "\nProcesses related to containers:\n");
-
+    // Iteramos sobre los procesos
     for_each_process(task) {
-        if (task->mm) {
-            // Obtener el comando de línea
-            char comm[TASK_COMM_LEN];
-            get_task_comm(comm, task);
+        if (strcmp(task->comm, "containerd-shim") == 0) {
+            unsigned long vsz = 0;
+            unsigned long rss = 0;
+            unsigned long totalram = si.totalram * 4;
+            unsigned long mem_usage = 0;
+            unsigned long cpu_usage = 0;
+            char *cmdline = NULL;
 
-            // Obtener información de memoria
-            unsigned long vsz = task->mm->total_vm * (pagesize / 1024); // Memoria virtual en KB
-            unsigned long rss = get_mm_rss(task->mm) * (pagesize / 1024); // Memoria física en KB
+            // Obtenemos los valores de VSZ y RSS
+            if (task->mm) {
+                // Obtenemos el uso de vsz haciendo un shift de PAGE_SHIFT - 10, un PAGE_SHIFT es la cantidad de bits que se necesitan para representar un byte
+                vsz = task->mm->total_vm << (PAGE_SHIFT - 10);
+                // Obtenemos el uso de rss haciendo un shift de PAGE_SHIFT - 10
+                rss = get_mm_rss(task->mm) << (PAGE_SHIFT - 10);
+                // Obtenemos el uso de memoria en porcentaje
+                mem_usage = (rss * 10000) / totalram;
+            }
 
-            // Calcula el porcentaje de memoria utilizada
-            unsigned long mem_total = totalram; // Total RAM
-            unsigned long mem_used = usedram; // RAM en uso
-            unsigned long mem_usage_pct = (rss * 100) / mem_total;
+            /* 
+                Obtenemos el tiempo total de CPU de un proceso
+                Obtenemos el tiempo total de CPU de todos los procesos
+                Obtenemos el uso de CPU en porcentaje
+                Obtenemos la línea de comandos de un proceso
+            */
+            unsigned long total_time = task->utime + task->stime;
+            cpu_usage = (total_time * 10000) / total_jiffies;
+            cmdline = get_process_cmdline(task);
 
-            // Calcula el porcentaje de CPU utilizado
-            unsigned long cpu_usage_pct = (task->se.sum_exec_runtime * 100) / (jiffies_to_msecs(jiffies) * 1000);
+            if (!first_process) {
+                seq_printf(m, ",\n");
+            } else {
+                first_process = 0;
+            }
 
-            seq_printf(m, "PID: %d\n", task->pid);
-            seq_printf(m, "Name: %s\n", comm);
-            seq_printf(m, "Command Line: %s\n", task->comm);
-            seq_printf(m, "VSZ: %lu KB\n", vsz);
-            seq_printf(m, "RSS: %lu KB\n", rss);
-            seq_printf(m, "Memory Usage: %lu%%\n", mem_usage_pct);
-            seq_printf(m, "CPU Usage: %lu%%\n\n", cpu_usage_pct);
+            seq_printf(m, "  {\n");
+            seq_printf(m, "    \"PID\": %d,\n", task->pid);
+            seq_printf(m, "    \"Name\": \"%s\",\n", task->comm);
+            seq_printf(m, "    \"Cmdline\": \"%s\",\n", cmdline ? cmdline : "N/A");
+            seq_printf(m, "    \"VSZ\": %lu KB\n", vsz);
+            seq_printf(m, "    \"RSS\": %lu KB\n", rss);
+            seq_printf(m, "    \"MemoryUsage\": %lu.%02lu,\n", mem_usage / 100, mem_usage % 100);
+            seq_printf(m, "    \"CPUUsage\": %lu.%02lu\n", cpu_usage / 100, cpu_usage % 100);
+            seq_printf(m, "  }");
+
+
+            // Liberamos la memoria de la línea de comandos
+            if (cmdline) {
+                kfree(cmdline);
+            }
         }
     }
 
+    seq_printf(m, "\n]\n}\n");
     return 0;
 }
 
-// Función para abrir el archivo /proc
+/* 
+    Función que se ejecuta al abrir el archivo /proc
+*/
 static int sysinfo_open(struct inode *inode, struct file *file) {
     return single_open(file, sysinfo_show, NULL);
 }
 
-// Operaciones del archivo /proc
+/* 
+    Estructura que contiene las operaciones del archivo /proc
+*/
 static const struct proc_ops sysinfo_ops = {
     .proc_open = sysinfo_open,
     .proc_read = seq_read,
 };
 
-// Inicialización del módulo
+/* 
+    Función de inicialización del módulo
+*/
 static int __init sysinfo_init(void) {
     proc_create(PROC_NAME, 0, NULL, &sysinfo_ops);
-    printk(KERN_INFO "sysinfo_20200734 module loaded\n");
+    printk(KERN_INFO "sysinfo_json modulo cargado\n");
     return 0;
 }
 
-// Salida del módulo
+/* 
+    Función de limpieza del módulo
+*/
 static void __exit sysinfo_exit(void) {
     remove_proc_entry(PROC_NAME, NULL);
-    printk(KERN_INFO "sysinfo_20200734 module unloaded\n");
+    printk(KERN_INFO "sysinfo_json modulo desinstalado\n");
 }
 
 module_init(sysinfo_init);
 module_exit(sysinfo_exit);
+
