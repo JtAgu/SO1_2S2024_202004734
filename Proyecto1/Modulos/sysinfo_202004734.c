@@ -140,12 +140,6 @@ static int sysinfo_show(struct seq_file *m, void *v) {
                 mem_usage = (rss * 10000) / totalram;
             }
 
-            /* 
-                Obtenemos el tiempo total de CPU de un proceso
-                Obtenemos el tiempo total de CPU de todos los procesos
-                Obtenemos el uso de CPU en porcentaje
-                Obtenemos la línea de comandos de un proceso
-            */
             unsigned long total_time = task->utime + task->stime;
             cpu_usage = (total_time * 10000) / total_jiffies;
             cmdline = get_process_cmdline(task);
@@ -160,8 +154,8 @@ static int sysinfo_show(struct seq_file *m, void *v) {
             seq_printf(m, "    \"PID\": %d,\n", task->pid);
             seq_printf(m, "    \"Name\": \"%s\",\n", task->comm);
             seq_printf(m, "    \"Cmdline\": \"%s\",\n", cmdline ? cmdline : "N/A");
-            seq_printf(m, "    \"VSZ\": %lu KB\n", vsz);
-            seq_printf(m, "    \"RSS\": %lu KB\n", rss);
+            seq_printf(m, "    \"VSZ\": %lu,\n", vsz);
+            seq_printf(m, "    \"RSS\": %lu,\n", rss);
             seq_printf(m, "    \"MemoryUsage\": %lu.%02lu,\n", mem_usage / 100, mem_usage % 100);
             seq_printf(m, "    \"CPUUsage\": %lu.%02lu\n", cpu_usage / 100, cpu_usage % 100);
             seq_printf(m, "  }");

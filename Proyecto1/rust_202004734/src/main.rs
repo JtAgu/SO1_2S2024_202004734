@@ -351,9 +351,7 @@ fn main() {
             }
             Err(e) => println!("Failed to parse JSON: {}", e),
         }
-
         // Dormimos el hilo principal por 10 segundos.
         std::thread::sleep(std::time::Duration::from_secs(10));
     }
-
 }
