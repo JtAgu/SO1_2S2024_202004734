@@ -2,7 +2,10 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use serde::{Deserialize, Serialize};
-
+use reqwest::Client;
+use chrono::{Local, NaiveDate, NaiveTime}; 
+use serde_json::to_string;
+use chrono::Local;
 // CREACIÓN DE STRUCT
 
 /* 
@@ -17,6 +20,9 @@ struct SystemInfo {
     #[serde(rename = "Processes")]
     processes: Vec<Process>
 }
+
+let main_container=0;
+
 
 /* 
     Además de esto, estamos implementando los traits Eq, Ord y PartialOrd para poder comparar
@@ -53,6 +59,8 @@ struct LogProcess {
     name: String,
     memory_usage: f64,
     cpu_usage: f64,
+    date:NaiveDate,
+    time:NaiveTime
 }
 
 // IMPLEMENTACIÓN DE MÉTODOS
@@ -199,6 +207,21 @@ fn analyzer( system_info:  SystemInfo) {
     */
     processes_list.sort();
 
+    for process in processes_list.iter() {        
+        let log_process = LogProcess {
+            pid: process.pid,
+            container_id: process.get_container_id().to_string(),
+            name: process.name.clone(),
+            memory_usage: process.memory_usage,
+            cpu_usage: process.cpu_usage,
+            date:now.date_naive(),
+            time:now.time()
+        };
+        match to_string(&log_process) {
+            Ok(json) => println!("LogProcess en JSON: {}", json),
+            Err(e) => println!("Error al convertir a JSON: {}", e),
+        }
+    }
 
     // Dividimos la lista de procesos en dos partes iguales.
     let (lowest_list, highest_list) = processes_list.split_at(processes_list.len() / 2);
@@ -210,14 +233,14 @@ fn analyzer( system_info:  SystemInfo) {
         println!("PID: {}, Name: {}, container ID: {}, Memory Usage: {}, CPU Usage: {}", process.pid, process.name, process.get_container_id(), process.memory_usage, process.cpu_usage);
     }
 
-    println!("------------------------------");
+    println!("--------------------------------------------------------------------");
 
     println!("Alto consumo");
     for process in highest_list {
         println!("PID: {}, Name: {}, Icontainer ID {}, Memory Usage: {}, CPU Usage: {}", process.pid, process.name,process.get_container_id(),process.memory_usage, process.cpu_usage);
     }
 
-    println!("------------------------------");
+    println!("--------------------------------------------------------------------");
 
     /* 
         En la lista de bajo consumo, matamos todos los contenedores excepto los 3 primeros.
@@ -231,19 +254,23 @@ fn analyzer( system_info:  SystemInfo) {
     if lowest_list.len() > 3 {
         // Iteramos sobre los procesos en la lista de bajo consumo.
         for process in lowest_list.iter().skip(3) {
-            let log_process = LogProcess {
-                pid: process.pid,
-                container_id: process.get_container_id().to_string(),
-                name: process.name.clone(),
-                memory_usage: process.memory_usage,
-                cpu_usage: process.cpu_usage,
-            };
-    
-            log_proc_list.push(log_process.clone());
+            if process.get_container_id() != main_container {
+                let now = Local::now();
+                let log_process = LogProcess {
+                    pid: process.pid,
+                    container_id: process.get_container_id().to_string(),
+                    name: process.name.clone(),
+                    memory_usage: process.memory_usage,
+                    cpu_usage: process.cpu_usage,
+                    date:now.date_naive(),
+                    time:now.time()
+                };
+        
+                log_proc_list.push(log_process.clone());
 
-            // Matamos el contenedor.
-            let _output = kill_container(&process.get_container_id());
-
+                // Matamos el contenedor.
+                let _output = kill_container(&process.get_container_id());
+            }
         }
     } 
 
@@ -258,19 +285,22 @@ fn analyzer( system_info:  SystemInfo) {
     if highest_list.len() > 2 {
         // Iteramos sobre los procesos en la lista de alto consumo.
         for process in highest_list.iter().take(highest_list.len() - 2) {
-            let log_process = LogProcess {
-                pid: process.pid,
-                container_id: process.get_container_id().to_string(),
-                name: process.name.clone(),
-                memory_usage: process.memory_usage,
-                cpu_usage: process.cpu_usage
-            };
+            if process.get_container_id() != main_container {
+                let log_process = LogProcess {
+                    pid: process.pid,
+                    container_id: process.get_container_id().to_string(),
+                    name: process.name.clone(),
+                    memory_usage: process.memory_usage,
+                    cpu_usage: process.cpu_usage,
+                    date:now.date_naive(),
+                    time:now.time()
+                };
+                
+                log_proc_list.push(log_process.clone());
     
-            log_proc_list.push(log_process.clone());
-
-            // Matamos el contenedor.
-            let _output = kill_container(&process.get_container_id());
-
+                // Matamos el contenedor.
+                let _output = kill_container(&process.get_container_id());
+            }
         }
     }
 
@@ -282,8 +312,8 @@ fn analyzer( system_info:  SystemInfo) {
         println!("PID: {}, Name: {}, Container ID: {}, Memory Usage: {}, CPU Usage: {} ", process.pid, process.name, process.container_id,  process.memory_usage, process.cpu_usage);
     }
 
-    println!("------------------------------");
-
+    println!("--------------------------------------------------------------------");
+    println!("--------------------------------------------------------------------");
     
 }
 
@@ -327,9 +357,46 @@ fn parse_proc_to_struct(json_str: &str) -> Result<SystemInfo, serde_json::Error>
     Ok(system_info)
 }
 
+fn yaml_up(){
+    let compose_up = Command::new("docker-compose")
+        .args(&["up", "-d"]) // `-d` para levantar en segundo plano
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()
+        .expect("Error al levantar docker-compose");
+
+    // Verificar si el comando se ejecutó correctamente
+    if !compose_up.status.success() {
+        eprintln!("Error al ejecutar docker-compose up");
+        return;
+    }
+
+    // Obtener ID del contenedor
+    let output = Command::new("docker-compose")
+        .args(&["ps", "-q"]) // `-q` para mostrar solo los IDs
+        .output()
+        .expect("Error al obtener el ID del contenedor");
+
+    if output.status.success() {
+        // Convertir la salida a String
+        let container_id = str::from_utf8(&output.stdout)
+            .expect("Error al convertir la salida")
+            .trim();
+
+        if !container_id.is_empty() {
+            main_container=container_id;
+            println!("ID del contenedor: {}", container_id);
+        } else {
+            println!("No se encontró ningún contenedor en ejecución.");
+        }
+    } else {
+        eprintln!("Error al obtener los IDs de los contenedores.");
+    }
+}
 
 
 fn main() {
+
     loop {
         // Creamos una estructura de datos SystemInfo con un vector de procesos vacío.
         let system_info: Result<SystemInfo, _>;
