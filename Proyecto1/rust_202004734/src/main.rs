@@ -117,6 +117,8 @@ impl Ord for Process {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.cpu_usage.partial_cmp(&other.cpu_usage).unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| self.memory_usage.partial_cmp(&other.memory_usage).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| self.vsz.partial_cmp(&other.vcz).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| self.rss.partial_cmp(&other.rss).unwrap_or(std::cmp::Ordering::Equal))
     }
 }
 
@@ -328,13 +330,7 @@ fn parse_proc_to_struct(json_str: &str) -> Result<SystemInfo, serde_json::Error>
 
 
 fn main() {
-
-    // TODO: antes de iniciar el loop, ejecutar el docker-compose.yml y obtener el id del contenedor registro.
-
-    // TODO: Utilizar algo para capturar la señal de terminación y matar el contenedor registro y cronjob.
-
     loop {
-        
         // Creamos una estructura de datos SystemInfo con un vector de procesos vacío.
         let system_info: Result<SystemInfo, _>;
 

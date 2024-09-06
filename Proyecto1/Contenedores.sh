@@ -26,11 +26,14 @@ crear_contenedores() {
 }
 
 # Bucle infinito para el ciclo de eliminación y creación
-echo "Creando los primeros 10 contenedores..."
+echo "Creando contenedores..."
+while true; do
 for i in {1..10};do
     crear_contenedores
 done
 sleep 30
+done
+
 #while true
 #do
 #    sudo docker rm -f $(sudo docker ps -aq)
