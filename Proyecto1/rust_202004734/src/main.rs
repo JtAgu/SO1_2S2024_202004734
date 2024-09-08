@@ -2,10 +2,14 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use serde::{Deserialize, Serialize};
-use reqwest::Client;
+use std::process::{Command,Stdio};
 use chrono::{Local, NaiveDate, NaiveTime}; 
 use serde_json::to_string;
-use chrono::Local;
+use std::string::FromUtf8Error;
+
+use reqwest::Client;
+use std::error::Error;
+
 // CREACIÓN DE STRUCT
 
 /* 
@@ -21,7 +25,7 @@ struct SystemInfo {
     processes: Vec<Process>
 }
 
-let main_container=0;
+
 
 
 /* 
@@ -50,6 +54,10 @@ struct Process {
     memory_usage: f64,
     #[serde(rename = "CPUUsage")]
     cpu_usage: f64,
+    #[serde(rename = "VSZ")]
+    vcz: f64,
+    #[serde(rename = "RSS")]
+    rss: f64
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -59,8 +67,10 @@ struct LogProcess {
     name: String,
     memory_usage: f64,
     cpu_usage: f64,
-    date:NaiveDate,
-    time:NaiveTime
+    vcz: f64,
+    rss: f64,
+    date:String,
+    time:String
 }
 
 // IMPLEMENTACIÓN DE MÉTODOS
@@ -125,7 +135,7 @@ impl Ord for Process {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.cpu_usage.partial_cmp(&other.cpu_usage).unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| self.memory_usage.partial_cmp(&other.memory_usage).unwrap_or(std::cmp::Ordering::Equal))
-            .then_with(|| self.vsz.partial_cmp(&other.vcz).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| self.vcz.partial_cmp(&other.vcz).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| self.rss.partial_cmp(&other.rss).unwrap_or(std::cmp::Ordering::Equal))
     }
 }
@@ -169,6 +179,32 @@ fn kill_container(id: &str) -> std::process::Output {
     output
 }
 
+async fn send_log(log_process: &LogProcess) -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let url = "http://localhost:8080/logs";  // URL del servicio en Python
+    let mut log_proc_list2: Vec<LogProcess> = Vec::new();
+    log_proc_list2.push(log_process.clone());
+    // Convertir LogProcess a JSON
+    let json = to_string(&log_proc_list2)?;
+    println!("{}",json);
+    // Enviar la solicitud POST
+    let response = client.post(url)
+        .header("Content-Type", "application/json")
+        .body(json)
+        .send()
+        .await?;
+
+    // Verificar el código de estado de la respuesta
+    if response.status().is_success() {
+        println!("Successfully sent log to Python service.");
+    } else {
+        eprintln!("Failed to send log: {}", response.status());
+    }
+
+    Ok(())
+}
+
+
 fn analyzer( system_info:  SystemInfo) {
 
 
@@ -206,21 +242,25 @@ fn analyzer( system_info:  SystemInfo) {
         ordenar los procesos en el vector processes_list basándose en el uso de CPU y memoria.
     */
     processes_list.sort();
-
-    for process in processes_list.iter() {        
+    let now = Local::now();
+    for process in processes_list.iter() { 
+        
         let log_process = LogProcess {
             pid: process.pid,
             container_id: process.get_container_id().to_string(),
             name: process.name.clone(),
             memory_usage: process.memory_usage,
             cpu_usage: process.cpu_usage,
-            date:now.date_naive(),
-            time:now.time()
+            vcz: process.vcz,
+            rss: process.rss,
+            date:now.date_naive().to_string(),
+            time: now.format("%H:%M:%S").to_string()
         };
-        match to_string(&log_process) {
-            Ok(json) => println!("LogProcess en JSON: {}", json),
-            Err(e) => println!("Error al convertir a JSON: {}", e),
+        let result = tokio::runtime::Runtime::new().unwrap().block_on(send_log(&log_process));
+        if let Err(e) = result {
+            eprintln!("Error sending log to Python service: {}", e);
         }
+
     }
 
     // Dividimos la lista de procesos en dos partes iguales.
@@ -230,14 +270,14 @@ fn analyzer( system_info:  SystemInfo) {
     // Hacemos un print de los contenedores de bajo consumo en las listas.
     println!("Bajo consumo");
     for process in lowest_list {
-        println!("PID: {}, Name: {}, container ID: {}, Memory Usage: {}, CPU Usage: {}", process.pid, process.name, process.get_container_id(), process.memory_usage, process.cpu_usage);
+        println!("PID: {}, container ID: {}, Memory Usage: {}, CPU Usage: {}", process.pid, process.get_container_id(), process.memory_usage, process.cpu_usage);
     }
 
     println!("--------------------------------------------------------------------");
 
     println!("Alto consumo");
     for process in highest_list {
-        println!("PID: {}, Name: {}, Icontainer ID {}, Memory Usage: {}, CPU Usage: {}", process.pid, process.name,process.get_container_id(),process.memory_usage, process.cpu_usage);
+        println!("PID: {}, Icontainer ID {}, Memory Usage: {}, CPU Usage: {}", process.pid,process.get_container_id(),process.memory_usage, process.cpu_usage);
     }
 
     println!("--------------------------------------------------------------------");
@@ -254,16 +294,19 @@ fn analyzer( system_info:  SystemInfo) {
     if lowest_list.len() > 3 {
         // Iteramos sobre los procesos en la lista de bajo consumo.
         for process in lowest_list.iter().skip(3) {
-            if process.get_container_id() != main_container {
-                let now = Local::now();
+            //main_container
+            if process.get_container_id() != "38d76d29e9272eb093b354a33b04a7c1acb1b12b77e07d24b09949983e441a37" {
+                
                 let log_process = LogProcess {
                     pid: process.pid,
                     container_id: process.get_container_id().to_string(),
                     name: process.name.clone(),
                     memory_usage: process.memory_usage,
                     cpu_usage: process.cpu_usage,
-                    date:now.date_naive(),
-                    time:now.time()
+                    vcz: process.vcz,
+                    rss: process.rss,
+                    date:now.date_naive().to_string(),
+                    time: now.format("%H:%M:%S").to_string()
                 };
         
                 log_proc_list.push(log_process.clone());
@@ -285,15 +328,18 @@ fn analyzer( system_info:  SystemInfo) {
     if highest_list.len() > 2 {
         // Iteramos sobre los procesos en la lista de alto consumo.
         for process in highest_list.iter().take(highest_list.len() - 2) {
-            if process.get_container_id() != main_container {
+            //main_container
+            if process.get_container_id() != "38d76d29e9272eb093b354a33b04a7c1acb1b12b77e07d24b09949983e441a37" {
                 let log_process = LogProcess {
                     pid: process.pid,
                     container_id: process.get_container_id().to_string(),
                     name: process.name.clone(),
                     memory_usage: process.memory_usage,
                     cpu_usage: process.cpu_usage,
-                    date:now.date_naive(),
-                    time:now.time()
+                    vcz: process.vcz,
+                    rss: process.rss,
+                    date:now.date_naive().to_string(),
+                    time: now.format("%H:%M:%S").to_string()
                 };
                 
                 log_proc_list.push(log_process.clone());
@@ -309,7 +355,7 @@ fn analyzer( system_info:  SystemInfo) {
     // Hacemos un print de los contenedores que matamos.
     println!("Contenedores matados");
     for process in log_proc_list {
-        println!("PID: {}, Name: {}, Container ID: {}, Memory Usage: {}, CPU Usage: {} ", process.pid, process.name, process.container_id,  process.memory_usage, process.cpu_usage);
+        println!("PID: {}, Container ID: {}, Memory Usage: {}, CPU Usage: {} ", process.pid, process.container_id,  process.memory_usage, process.cpu_usage);
     }
 
     println!("--------------------------------------------------------------------");
@@ -339,7 +385,6 @@ fn read_proc_file(file_name: &str) -> io::Result<String> {
     // Se lee el contenido del archivo y se guarda en la variable content.
     file.read_to_string(&mut content)?;
 
-
     // Se regresa el contenido del archivo.
     Ok(content)
 }
@@ -357,45 +402,33 @@ fn parse_proc_to_struct(json_str: &str) -> Result<SystemInfo, serde_json::Error>
     Ok(system_info)
 }
 
-fn yaml_up(){
-    let compose_up = Command::new("docker-compose")
-        .args(&["up", "-d"]) // `-d` para levantar en segundo plano
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .output()
-        .expect("Error al levantar docker-compose");
 
-    // Verificar si el comando se ejecutó correctamente
-    if !compose_up.status.success() {
-        eprintln!("Error al ejecutar docker-compose up");
-        return;
-    }
 
-    // Obtener ID del contenedor
-    let output = Command::new("docker-compose")
-        .args(&["ps", "-q"]) // `-q` para mostrar solo los IDs
-        .output()
-        .expect("Error al obtener el ID del contenedor");
 
-    if output.status.success() {
-        // Convertir la salida a String
-        let container_id = str::from_utf8(&output.stdout)
-            .expect("Error al convertir la salida")
-            .trim();
 
-        if !container_id.is_empty() {
-            main_container=container_id;
-            println!("ID del contenedor: {}", container_id);
-        } else {
-            println!("No se encontró ningún contenedor en ejecución.");
-        }
-    } else {
-        eprintln!("Error al obtener los IDs de los contenedores.");
-    }
-}
+
 
 
 fn main() {
+   
+    let mut output = Command::new("sh")
+        .arg("-c")
+        .arg("cd ../../Python_server && docker-compose up -d")
+        .output()
+        .expect("Failed to execute command");
+
+    // Verifica si el comando se ejecutó correctamente
+    if output.status.success() {
+        // Convierte la salida a una cadena y la imprime
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        println!("Output: {}", stdout);
+    } else {
+        // Convierte el error a una cadena y lo imprime
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("Error: {}", stderr);
+    }
+    print!("Iniciando...");
+    std::thread::sleep(std::time::Duration::from_secs(5));
 
     loop {
         // Creamos una estructura de datos SystemInfo con un vector de procesos vacío.
@@ -417,4 +450,5 @@ fn main() {
         // Dormimos el hilo principal por 10 segundos.
         std::thread::sleep(std::time::Duration::from_secs(10));
     }
+
 }
