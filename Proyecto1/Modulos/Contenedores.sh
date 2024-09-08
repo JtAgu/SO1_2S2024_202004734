@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Lista de imágenes de alto y bajo consumo
-ALTO_CONSUMO=("redis" "alpine/stress")
+ALTO_CONSUMO=("redis" "nginx")
 BAJO_CONSUMO=("alpine" "busybox")
 
 # Función para crear contenedores

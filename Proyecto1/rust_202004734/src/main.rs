@@ -186,7 +186,7 @@ async fn send_log(log_process: &LogProcess) -> Result<(), Box<dyn Error>> {
     log_proc_list2.push(log_process.clone());
     // Convertir LogProcess a JSON
     let json = to_string(&log_proc_list2)?;
-    println!("{}",json);
+
     // Enviar la solicitud POST
     let response = client.post(url)
         .header("Content-Type", "application/json")
@@ -203,6 +203,45 @@ async fn send_log(log_process: &LogProcess) -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+async fn get_CPU_Usage() -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let url = "http://localhost:8080/cpu";  // URL del servicio en Python
+    
+    // Enviar la solicitud POST
+    let response = client.get(url)
+        .send()
+        .await?;
+
+    // Verificar el código de estado de la respuesta
+    if response.status().is_success() {
+        println!("");
+    } else {
+        eprintln!("Failed: {}", response.status());
+    }
+
+    Ok(())
+}
+
+async fn get_MEM_Usage() -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let url = "http://localhost:8080/memory";  // URL del servicio en Python
+    
+    // Enviar la solicitud POST
+    let response = client.get(url)
+        .send()
+        .await?;
+
+    // Verificar el código de estado de la respuesta
+    if response.status().is_success() {
+        println!("");
+    } else {
+        eprintln!("Failed: {}", response.status());
+    }
+
+    Ok(())
+}
+
 
 
 fn analyzer( system_info:  SystemInfo) {
@@ -256,12 +295,14 @@ fn analyzer( system_info:  SystemInfo) {
             date:now.date_naive().to_string(),
             time: now.format("%H:%M:%S").to_string()
         };
-        let result = tokio::runtime::Runtime::new().unwrap().block_on(send_log(&log_process));
-        if let Err(e) = result {
-            eprintln!("Error sending log to Python service: {}", e);
-        }
+        //let result = tokio::runtime::Runtime::new().unwrap().block_on(send_log(&log_process));
+        //if let Err(e) = result {
+        //    eprintln!("Error sending log to Python service: {}", e);
+        //}
 
     }
+    //let cpu = tokio::runtime::Runtime::new().unwrap().block_on(get_CPU_Usage());
+    //let mem = tokio::runtime::Runtime::new().unwrap().block_on(get_MEM_Usage());
 
     // Dividimos la lista de procesos en dos partes iguales.
     let (lowest_list, highest_list) = processes_list.split_at(processes_list.len() / 2);
@@ -295,7 +336,7 @@ fn analyzer( system_info:  SystemInfo) {
         // Iteramos sobre los procesos en la lista de bajo consumo.
         for process in lowest_list.iter().skip(3) {
             //main_container
-            if process.get_container_id() != "38d76d29e9272eb093b354a33b04a7c1acb1b12b77e07d24b09949983e441a37" {
+            if !process.get_container_id().contains("002d39abea2ec1682fe0"){
                 
                 let log_process = LogProcess {
                     pid: process.pid,
@@ -329,7 +370,7 @@ fn analyzer( system_info:  SystemInfo) {
         // Iteramos sobre los procesos en la lista de alto consumo.
         for process in highest_list.iter().take(highest_list.len() - 2) {
             //main_container
-            if process.get_container_id() != "38d76d29e9272eb093b354a33b04a7c1acb1b12b77e07d24b09949983e441a37" {
+            if !process.get_container_id().contains("002d39abea2ec1682fe0"){
                 let log_process = LogProcess {
                     pid: process.pid,
                     container_id: process.get_container_id().to_string(),
@@ -428,8 +469,9 @@ fn main() {
         eprintln!("Error: {}", stderr);
     }
     print!("Iniciando...");
-    std::thread::sleep(std::time::Duration::from_secs(5));
 
+    
+    std::thread::sleep(std::time::Duration::from_secs(5));
     loop {
         // Creamos una estructura de datos SystemInfo con un vector de procesos vacío.
         let system_info: Result<SystemInfo, _>;
@@ -439,7 +481,7 @@ fn main() {
 
         // Deserializamos el contenido del archivo proc a un SystemInfo.
         system_info = parse_proc_to_struct(&json_str);
-
+        
         // Dependiendo de si se pudo deserializar el contenido del archivo proc o no, se ejecuta una u otra rama.
         match system_info {
             Ok( info) => {
