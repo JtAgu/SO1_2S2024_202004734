@@ -116,8 +116,11 @@ static int sysinfo_show(struct seq_file *m, void *v) {
     // Obtenemos la información de memoria
     si_meminfo(&si);
 
-
+    long ram_uso=si.totalram-si.freeram;
     seq_printf(m, "{\n");
+    seq_printf(m, "  \"TotalRAM\": %lu,\n", si.totalram * 4);
+    seq_printf(m, "  \"UsoRAM\": %lu,\n", ram_uso * 4);
+    seq_printf(m, "  \"FreeRAM\": %lu,\n", si.freeram * 4);
     seq_printf(m, "\"Processes\": [\n");
 
     // Iteramos sobre los procesos
@@ -169,6 +172,7 @@ static int sysinfo_show(struct seq_file *m, void *v) {
     }
 
     seq_printf(m, "\n]\n}\n");
+    
     return 0;
 }
 

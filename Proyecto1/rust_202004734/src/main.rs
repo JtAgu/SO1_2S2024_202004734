@@ -22,7 +22,13 @@ use std::error::Error;
 #[derive(Debug, Serialize, Deserialize)]
 struct SystemInfo {
     #[serde(rename = "Processes")]
-    processes: Vec<Process>
+    processes: Vec<Process>,
+    #[serde(rename = "TotalRAM")]
+    total_ram: u64,
+    #[serde(rename = "FreeRAM")]
+    free_ram: u64,
+    #[serde(rename = "UsoRAM")]
+    uso_ram: u64
 }
 
 
@@ -204,11 +210,11 @@ async fn send_log(log_process: &LogProcess) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn get_CPU_Usage() -> Result<(), Box<dyn Error>> {
+async fn get_cpu_usage() -> Result<(), Box<dyn Error>> {
     let client = Client::new();
     let url = "http://localhost:8080/cpu";  // URL del servicio en Python
     
-    // Enviar la solicitud POST
+    // Enviar la solicitud GET
     let response = client.get(url)
         .send()
         .await?;
@@ -223,11 +229,51 @@ async fn get_CPU_Usage() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn get_MEM_Usage() -> Result<(), Box<dyn Error>> {
+async fn get_mem_usage() -> Result<(), Box<dyn Error>> {
     let client = Client::new();
     let url = "http://localhost:8080/memory";  // URL del servicio en Python
     
-    // Enviar la solicitud POST
+    // Enviar la solicitud GET
+    let response = client.get(url)
+        .send()
+        .await?;
+
+    // Verificar el código de estado de la respuesta
+    if response.status().is_success() {
+        println!("");
+    } else {
+        eprintln!("Failed: {}", response.status());
+    }
+
+    Ok(())
+}
+
+async fn send_log_ram(sys_info: &SystemInfo) -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let url = "http://localhost:8080/logs_mem";  // URL del servicio en Python
+    let json = to_string(&sys_info)?;
+
+    let response = client.post(url)
+    .header("Content-Type", "application/json")
+    .body(json)
+    .send()
+    .await?;
+
+    // Verificar el código de estado de la respuesta
+    if response.status().is_success() {
+        println!("Successfully sent log to Python service.");
+    } else {
+        eprintln!("Failed to send log aqui: {}", response.status());
+    }
+
+    Ok(())
+}
+
+async fn get_ram_usage() -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let url = "http://localhost:8080/ram";  // URL del servicio en Python
+    
+    // Enviar la solicitud GET
     let response = client.get(url)
         .send()
         .await?;
@@ -249,16 +295,25 @@ fn analyzer( system_info:  SystemInfo) {
 
     // Creamos un vector vacío para guardar los logs de los procesos.
     let mut log_proc_list: Vec<LogProcess> = Vec::new();
-
+    
 
     /* 
         Creamos un vector vacío para guardar los logs del sistema.
         En este caso, no se guardará nada, pero se puede modificar para guardar
         información del sistema.
     */
+    //let ram = tokio::runtime::Runtime::new().unwrap().block_on(send_log_ram(&system_info));
+    
     let mut processes_list: Vec<Process> = system_info.processes;
 
-
+    
+    //println!("{}",system_info.total_ram);
+    //println!("{}",system_info.uso_ram);
+    //println!("{}",system_info.free_ram);
+    
+    //if let Err(e) = ram {
+    //    eprintln!("Error sending log to Python service: {}", e);
+    //}
     /* 
         Cuando llamas a la función sort en un vector de Process, se ejecutarán los traits 
         Ord y PartialOrd en el siguiente orden y con la siguiente funcionalidad:
@@ -295,15 +350,28 @@ fn analyzer( system_info:  SystemInfo) {
             date:now.date_naive().to_string(),
             time: now.format("%H:%M:%S").to_string()
         };
-        //let result = tokio::runtime::Runtime::new().unwrap().block_on(send_log(&log_process));
-        //if let Err(e) = result {
-        //    eprintln!("Error sending log to Python service: {}", e);
-        //}
+        let result = tokio::runtime::Runtime::new().unwrap().block_on(send_log(&log_process));
+        if let Err(e) = result {
+            eprintln!("Error sending log to Python service: {}", e);
+        }
 
     }
-    //let cpu = tokio::runtime::Runtime::new().unwrap().block_on(get_CPU_Usage());
-    //let mem = tokio::runtime::Runtime::new().unwrap().block_on(get_MEM_Usage());
 
+    let cpu = tokio::runtime::Runtime::new().unwrap().block_on(get_cpu_usage());
+    if let Err(e) = cpu {
+        eprintln!("Error sending log to Python service: {}", e);
+    }
+    let mem = tokio::runtime::Runtime::new().unwrap().block_on(get_mem_usage());
+    if let Err(e) = mem {
+        eprintln!("Error sending log to Python service: {}", e);
+    }
+    println!("USO DE RAM EN EL EQUIPO");
+    println!("RAM TOTAL: {}, : RAM EN USO {}, RAM LIBRE: {}", system_info.total_ram, system_info.uso_ram, system_info.free_ram);
+    println!("--------------------------------------------------------------------");
+    //let ram = tokio::runtime::Runtime::new().unwrap().block_on(get_ram_usage());
+    //if let Err(e) = ram {
+    //    eprintln!("Error sending log to Python service: {}", e);
+    //}
     // Dividimos la lista de procesos en dos partes iguales.
     let (lowest_list, highest_list) = processes_list.split_at(processes_list.len() / 2);
 
@@ -336,7 +404,7 @@ fn analyzer( system_info:  SystemInfo) {
         // Iteramos sobre los procesos en la lista de bajo consumo.
         for process in lowest_list.iter().skip(3) {
             //main_container
-            if !process.get_container_id().contains("002d39abea2ec1682fe0"){
+            if !process.get_container_id().contains("9c73086d4373"){
                 
                 let log_process = LogProcess {
                     pid: process.pid,
@@ -370,7 +438,7 @@ fn analyzer( system_info:  SystemInfo) {
         // Iteramos sobre los procesos en la lista de alto consumo.
         for process in highest_list.iter().take(highest_list.len() - 2) {
             //main_container
-            if !process.get_container_id().contains("002d39abea2ec1682fe0"){
+            if !process.get_container_id().contains("9c73086d4373"){
                 let log_process = LogProcess {
                     pid: process.pid,
                     container_id: process.get_container_id().to_string(),
@@ -452,7 +520,7 @@ fn parse_proc_to_struct(json_str: &str) -> Result<SystemInfo, serde_json::Error>
 
 fn main() {
    
-    let mut output = Command::new("sh")
+    let output = Command::new("sh")
         .arg("-c")
         .arg("cd ../../Python_server && docker-compose up -d")
         .output()
@@ -471,7 +539,7 @@ fn main() {
     print!("Iniciando...");
 
     
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    std::thread::sleep(std::time::Duration::from_secs(2));
     loop {
         // Creamos una estructura de datos SystemInfo con un vector de procesos vacío.
         let system_info: Result<SystemInfo, _>;
