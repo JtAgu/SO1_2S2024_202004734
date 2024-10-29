@@ -1,6 +1,6 @@
 module server-ing
 
-go 1.21.1
+go 1.23
 
 require google.golang.org/grpc v1.67.1
 
